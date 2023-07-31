@@ -19,7 +19,6 @@ package org.apache.fontbox.ttf;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
@@ -31,7 +30,15 @@ import java.util.Map;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-
+import org.apache.fontbox.ttf.table.common.CoverageTable;
+import org.apache.fontbox.ttf.table.common.CoverageTableFormat1;
+import org.apache.fontbox.ttf.table.common.CoverageTableFormat2;
+import org.apache.fontbox.ttf.table.common.LookupSubTable;
+import org.apache.fontbox.ttf.table.common.RangeRecord;
+import org.apache.fontbox.ttf.table.gsub.LookupTypeMultipleSubstitutionFormat1;
+import org.apache.fontbox.ttf.table.gsub.LookupTypeSingleSubstFormat1;
+import org.apache.fontbox.ttf.table.gsub.LookupTypeSingleSubstFormat2;
+import org.apache.fontbox.ttf.table.gsub.SequenceTable;
 /**
  * A glyph substitution 'GSUB' table in a TrueType or OpenType font.
  *
@@ -235,39 +242,92 @@ public class GlyphSubstitutionTable extends TTFTable
         return lookupTables;
     }
 
+    private LookupSubTable readLookupSubtable(TTFDataStream data, long offset, int lookupType) throws IOException
+    {
+        switch (lookupType)
+        {
+            case 1:
+                // Single Substitution Subtable
+                // https://docs.microsoft.com/en-us/typography/opentype/spec/gsub#SS
+                return readSingleLookupSubTable(data, offset);
+            case 2:
+                // Multiple Substitution Subtable
+                // https://learn.microsoft.com/en-us/typography/opentype/spec/gsub#lookuptype-2-multiple-substitution-subtable
+                return readMultipleSubstitutionSubtable(data, offset);
+            // case 4:
+                // Ligature Substitution Subtable
+                // https://docs.microsoft.com/en-us/typography/opentype/spec/gsub#LS
+                // return readLigatureSubstitutionSubtable(data, offset);
+
+                // when creating a new LookupSubTable derived type, don't forget to add a "switch"
+                // in readLookupTable() and add the type in GlyphSubstitutionDataExtractor.extractData()
+
+            default:
+                // Other lookup types are not supported
+                LOG.debug("Type " + lookupType
+                        + " GSUB lookup table is not supported and will be ignored");
+                return null;
+                //TODO next: implement type 6
+                // https://learn.microsoft.com/en-us/typography/opentype/spec/gsub#lookuptype-6-chained-contexts-substitution-subtable
+                // see e.g. readChainedContextualSubTable in Apache FOP
+                // https://github.com/apache/xmlgraphics-fop/blob/1323c2e3511eb23c7dd9b8fb74463af707fa972d/fop-core/src/main/java/org/apache/fop/complexscripts/fonts/OTFAdvancedTypographicTableReader.java#L898
+        }
+    }
+
     LookupTable readLookupTable(TTFDataStream data, long offset) throws IOException
     {
         data.seek(offset);
-        LookupTable lookupTable = new LookupTable();
-        lookupTable.lookupType = data.readUnsignedShort();
-        lookupTable.lookupFlag = data.readUnsignedShort();
+        int lookupType = data.readUnsignedShort();
+        int lookupFlag = data.readUnsignedShort();
         int subTableCount = data.readUnsignedShort();
         int[] subTableOffsets = new int[subTableCount];
         for (int i = 0; i < subTableCount; i++)
         {
             subTableOffsets[i] = data.readUnsignedShort();
         }
-        if ((lookupTable.lookupFlag & 0x0010) != 0)
+
+        int markFilteringSet = 0;
+        if ((lookupFlag & 0x0010) != 0)
         {
-            lookupTable.markFilteringSet = data.readUnsignedShort();
+            markFilteringSet = data.readUnsignedShort();
         }
-        lookupTable.subTables = new LookupSubTable[subTableCount];
-        switch (lookupTable.lookupType)
+        LookupSubTable[] subTables = new LookupSubTable[subTableCount];
+        switch (lookupType)
         {
-        case 1: // Single
+        case 1:
+        case 2:
+        case 4:
             for (int i = 0; i < subTableCount; i++)
             {
-                lookupTable.subTables[i] = readLookupSubTable(data, offset + subTableOffsets[i]);
+                subTables[i] = readLookupSubtable(data, offset + subTableOffsets[i], lookupType);
+            }
+            break;
+        case 7:
+            // Extension Substitution
+            // https://learn.microsoft.com/en-us/typography/opentype/spec/gsub#ES
+            for (int i = 0; i < subTableCount; i++)
+            {
+                long baseOffset = data.getCurrentPosition();
+                int substFormat = data.readUnsignedShort(); // always 1
+                if (substFormat != 1)
+                {
+                    LOG.error("The expected SubstFormat for ExtensionSubstFormat1 subtable is " +
+                            substFormat + " but should be 1");
+                    continue;
+                }
+                int extensionLookupType = data.readUnsignedShort();
+                long extensionOffset = data.readUnsignedInt();
+                subTables[i] = readLookupSubtable(data, baseOffset + extensionOffset, extensionLookupType);
             }
             break;
         default:
             // Other lookup types are not supported
-            LOG.debug("Type " + lookupTable.lookupType + " GSUB lookup table is not supported and will be ignored");
+            LOG.debug("Type " + lookupType + " GSUB lookup table is not supported and will be ignored");
         }
-        return lookupTable;
+        return new LookupTable(lookupType, lookupFlag, markFilteringSet, subTables);
     }
 
-    LookupSubTable readLookupSubTable(TTFDataStream data, long offset) throws IOException
+    private LookupSubTable readSingleLookupSubTable(TTFDataStream data, long offset) throws IOException
     {
         data.seek(offset);
         int substFormat = data.readUnsignedShort();
@@ -275,30 +335,73 @@ public class GlyphSubstitutionTable extends TTFTable
         {
         case 1:
         {
-            LookupTypeSingleSubstFormat1 lookupSubTable = new LookupTypeSingleSubstFormat1();
-            lookupSubTable.substFormat = substFormat;
+            // LookupType 1: Single Substitution Subtable
+            // https://docs.microsoft.com/en-us/typography/opentype/spec/gsub#11-single-substitution-format-1
             int coverageOffset = data.readUnsignedShort();
-            lookupSubTable.deltaGlyphID = data.readSignedShort();
-            lookupSubTable.coverageTable = readCoverageTable(data, offset + coverageOffset);
-            return lookupSubTable;
+            short deltaGlyphID = data.readSignedShort();
+            CoverageTable coverageTable = readCoverageTable(data, offset + coverageOffset);
+            return new LookupTypeSingleSubstFormat1(substFormat, coverageTable, deltaGlyphID);
         }
         case 2:
         {
-            LookupTypeSingleSubstFormat2 lookupSubTable = new LookupTypeSingleSubstFormat2();
-            lookupSubTable.substFormat = substFormat;
+            // Single Substitution Format 2
+            // https://docs.microsoft.com/en-us/typography/opentype/spec/gsub#12-single-substitution-format-2
             int coverageOffset = data.readUnsignedShort();
             int glyphCount = data.readUnsignedShort();
-            lookupSubTable.substituteGlyphIDs = new int[glyphCount];
+            int[] substituteGlyphIDs = new int[glyphCount];
             for (int i = 0; i < glyphCount; i++)
             {
-                lookupSubTable.substituteGlyphIDs[i] = data.readUnsignedShort();
+                substituteGlyphIDs[i] = data.readUnsignedShort();
             }
-            lookupSubTable.coverageTable = readCoverageTable(data, offset + coverageOffset);
-            return lookupSubTable;
+            CoverageTable coverageTable = readCoverageTable(data, offset + coverageOffset);
+            return new LookupTypeSingleSubstFormat2(substFormat, coverageTable, substituteGlyphIDs);
         }
         default:
             throw new IOException("Unknown substFormat: " + substFormat);
         }
+    }
+
+    private LookupSubTable readMultipleSubstitutionSubtable(TTFDataStream data, long offset)
+            throws IOException
+    {
+        data.seek(offset);
+        int substFormat = data.readUnsignedShort();
+
+        if (substFormat != 1)
+        {
+            throw new IOException(
+                    "The expected SubstFormat for LigatureSubstitutionTable is 1");
+        }
+
+        int coverage = data.readUnsignedShort();
+        int sequenceCount = data.readUnsignedShort();
+        int[] sequenceOffsets = new int[sequenceCount];
+        for (int i = 0; i < sequenceCount; i++)
+        {
+            sequenceOffsets[i] = data.readUnsignedShort();
+        }
+
+        CoverageTable coverageTable = readCoverageTable(data, offset + coverage);
+
+        if (sequenceCount != coverageTable.getSize())
+        {
+            throw new IOException(
+                    "According to the OpenTypeFont specifications, the coverage count should be equal to the no. of SequenceTables");
+        }
+
+        SequenceTable[] sequenceTables = new SequenceTable[sequenceCount];
+        for (int i = 0; i < sequenceCount; i++)
+        {
+            data.seek(offset + sequenceOffsets[i]);
+            int glyphCount = data.readUnsignedShort();
+            for (int j = 0; j < glyphCount; ++j)
+            {
+                int[] substituteGlyphIDs = data.readUnsignedShortArray(glyphCount);
+                sequenceTables[i] = new SequenceTable(glyphCount, substituteGlyphIDs);
+            }
+        }
+
+        return new LookupTypeMultipleSubstitutionFormat1(substFormat, coverageTable, sequenceTables);
     }
 
     CoverageTable readCoverageTable(TTFDataStream data, long offset) throws IOException
@@ -309,27 +412,23 @@ public class GlyphSubstitutionTable extends TTFTable
         {
         case 1:
         {
-            CoverageTableFormat1 coverageTable = new CoverageTableFormat1();
-            coverageTable.coverageFormat = coverageFormat;
             int glyphCount = data.readUnsignedShort();
-            coverageTable.glyphArray = new int[glyphCount];
+            int[] glyphArray = new int[glyphCount];
             for (int i = 0; i < glyphCount; i++)
             {
-                coverageTable.glyphArray[i] = data.readUnsignedShort();
+                glyphArray[i] = data.readUnsignedShort();
             }
-            return coverageTable;
+            return new CoverageTableFormat1(coverageFormat, glyphArray);
         }
         case 2:
         {
-            CoverageTableFormat2 coverageTable = new CoverageTableFormat2();
-            coverageTable.coverageFormat = coverageFormat;
             int rangeCount = data.readUnsignedShort();
-            coverageTable.rangeRecords = new RangeRecord[rangeCount];
+            RangeRecord[] rangeRecords = new RangeRecord[rangeCount];
             for (int i = 0; i < rangeCount; i++)
             {
-                coverageTable.rangeRecords[i] = readRangeRecord(data);
+                rangeRecords[i] = readRangeRecord(data);
             }
-            return coverageTable;
+            return new CoverageTableFormat2(coverageFormat, rangeRecords);
 
         }
         default:
@@ -504,7 +603,7 @@ public class GlyphSubstitutionTable extends TTFTable
     {
         for (LookupSubTable lookupSubtable : lookupTable.subTables)
         {
-            int coverageIndex = lookupSubtable.coverageTable.getCoverageIndex(gid);
+            int coverageIndex = lookupSubtable.getCoverageTable().getCoverageIndex(gid);
             if (coverageIndex >= 0)
             {
                 return lookupSubtable.doSubstitution(gid, coverageIndex);
@@ -575,11 +674,10 @@ public class GlyphSubstitutionTable extends TTFTable
 
     RangeRecord readRangeRecord(TTFDataStream data) throws IOException
     {
-        RangeRecord rangeRecord = new RangeRecord();
-        rangeRecord.startGlyphID = data.readUnsignedShort();
-        rangeRecord.endGlyphID = data.readUnsignedShort();
-        rangeRecord.startCoverageIndex = data.readUnsignedShort();
-        return rangeRecord;
+        int startGlyphID = data.readUnsignedShort();
+        int endGlyphID = data.readUnsignedShort();
+        int startCoverageIndex = data.readUnsignedShort();
+        return new RangeRecord(startGlyphID, endGlyphID, startCoverageIndex);
     }
 
     static class ScriptRecord
@@ -664,6 +762,15 @@ public class GlyphSubstitutionTable extends TTFTable
         int markFilteringSet;
         LookupSubTable[] subTables;
 
+        public LookupTable(int lookupType, int lookupFlag, int markFilteringSet,
+                LookupSubTable[] subTables)
+        {
+            this.lookupType = lookupType;
+            this.lookupFlag = lookupFlag;
+            this.markFilteringSet = markFilteringSet;
+            this.subTables = subTables;
+        }
+
         @Override
         public String toString()
         {
@@ -672,111 +779,4 @@ public class GlyphSubstitutionTable extends TTFTable
         }
     }
 
-    static abstract class LookupSubTable
-    {
-        int substFormat;
-        CoverageTable coverageTable;
-
-        abstract int doSubstitution(int gid, int coverageIndex);
-    }
-
-    static class LookupTypeSingleSubstFormat1 extends LookupSubTable
-    {
-        short deltaGlyphID;
-
-        @Override
-        int doSubstitution(int gid, int coverageIndex)
-        {
-            return coverageIndex < 0 ? gid : gid + deltaGlyphID;
-        }
-
-        @Override
-        public String toString()
-        {
-            return String.format("LookupTypeSingleSubstFormat1[substFormat=%d,deltaGlyphID=%d]",
-                    substFormat, deltaGlyphID);
-        }
-    }
-
-    static class LookupTypeSingleSubstFormat2 extends LookupSubTable
-    {
-        int[] substituteGlyphIDs;
-
-        @Override
-        int doSubstitution(int gid, int coverageIndex)
-        {
-            return coverageIndex < 0 ? gid : substituteGlyphIDs[coverageIndex];
-        }
-
-        @Override
-        public String toString()
-        {
-            return String.format(
-                    "LookupTypeSingleSubstFormat2[substFormat=%d,substituteGlyphIDs=%s]",
-                    substFormat, Arrays.toString(substituteGlyphIDs));
-        }
-    }
-
-    static abstract class CoverageTable
-    {
-        int coverageFormat;
-
-        abstract int getCoverageIndex(int gid);
-    }
-
-    static class CoverageTableFormat1 extends CoverageTable
-    {
-        int[] glyphArray;
-
-        @Override
-        int getCoverageIndex(int gid)
-        {
-            return Arrays.binarySearch(glyphArray, gid);
-        }
-
-        @Override
-        public String toString()
-        {
-            return String.format("CoverageTableFormat1[coverageFormat=%d,glyphArray=%s]",
-                    coverageFormat, Arrays.toString(glyphArray));
-        }
-    }
-
-    static class CoverageTableFormat2 extends CoverageTable
-    {
-        RangeRecord[] rangeRecords;
-
-        @Override
-        int getCoverageIndex(int gid)
-        {
-            for (RangeRecord rangeRecord : rangeRecords)
-            {
-                if (rangeRecord.startGlyphID <= gid && gid <= rangeRecord.endGlyphID)
-                {
-                    return rangeRecord.startCoverageIndex + gid - rangeRecord.startGlyphID;
-                }
-            }
-            return -1;
-        }
-
-        @Override
-        public String toString()
-        {
-            return String.format("CoverageTableFormat2[coverageFormat=%d]", coverageFormat);
-        }
-    }
-
-    static class RangeRecord
-    {
-        int startGlyphID;
-        int endGlyphID;
-        int startCoverageIndex;
-
-        @Override
-        public String toString()
-        {
-            return String.format("RangeRecord[startGlyphID=%d,endGlyphID=%d,startCoverageIndex=%d]",
-                    startGlyphID, endGlyphID, startCoverageIndex);
-        }
-    }
 }
