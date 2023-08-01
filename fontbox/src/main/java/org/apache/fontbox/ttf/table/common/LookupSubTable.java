@@ -38,6 +38,8 @@ public abstract class LookupSubTable
 
     public abstract int doSubstitution(int gid, int coverageIndex);
 
+    public abstract int[] getAlternatives(int gid, int coverageIndex);
+
     public int getSubstFormat()
     {
         return substFormat;

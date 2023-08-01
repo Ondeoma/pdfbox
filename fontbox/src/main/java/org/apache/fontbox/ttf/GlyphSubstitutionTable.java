@@ -51,6 +51,7 @@ import org.apache.fontbox.ttf.table.gsub.LigatureTable;
 import org.apache.fontbox.ttf.table.gsub.LookupTypeAlternateSubstitutionFormat1;
 import org.apache.fontbox.ttf.table.gsub.LookupTypeLigatureSubstitutionSubstFormat1;
 import org.apache.fontbox.ttf.table.gsub.LookupTypeMultipleSubstitutionFormat1;
+import org.apache.fontbox.ttf.table.gsub.LookupTypeAlternateSubstitutionFormat1;
 import org.apache.fontbox.ttf.table.gsub.LookupTypeSingleSubstFormat1;
 import org.apache.fontbox.ttf.table.gsub.LookupTypeSingleSubstFormat2;
 import org.apache.fontbox.ttf.table.gsub.SequenceTable;
@@ -289,7 +290,7 @@ public class GlyphSubstitutionTable extends TTFTable
             case 2:
                 // Multiple Substitution Subtable
                 // https://learn.microsoft.com/en-us/typography/opentype/spec/gsub#lookuptype-2-multiple-substitution-subtable
-                return readMultipleSubstitutionSubtable(data, offset);
+                return readMultipleSubstitutionSubtable(data, offset, lookupType);
             case 3:
                 // Alternate Substitution Subtable
                 // https://learn.microsoft.com/en-us/typography/opentype/spec/gsub#lookuptype-3-alternate-substitution-subtable
@@ -428,7 +429,7 @@ public class GlyphSubstitutionTable extends TTFTable
         }
     }
 
-    private LookupSubTable readMultipleSubstitutionSubtable(TTFDataStream data, long offset)
+    private LookupSubTable readMultipleSubstitutionSubtable(TTFDataStream data, long offset, int lookupType)
             throws IOException
     {
         data.seek(offset);
@@ -461,8 +462,11 @@ public class GlyphSubstitutionTable extends TTFTable
         {
             data.seek(offset + sequenceOffsets[i]);
             int glyphCount = data.readUnsignedShort();
-            int[] substituteGlyphIDs = data.readUnsignedShortArray(glyphCount);
-            sequenceTables[i] = new SequenceTable(glyphCount, substituteGlyphIDs);
+            for (int j = 0; j < glyphCount; ++j)
+            {
+                int[] substituteGlyphIDs = data.readUnsignedShortArray(glyphCount);
+                sequenceTables[i] = new SequenceTable(glyphCount, substituteGlyphIDs);
+            }
         }
 
         return new LookupTypeMultipleSubstitutionFormat1(substFormat, coverageTable, sequenceTables);
@@ -850,15 +854,61 @@ public class GlyphSubstitutionTable extends TTFTable
     }
 
     /**
-     * For a substitute-gid (obtained from {@link #getSubstitution(int, String[], List)}),
-     * retrieve the original gid.
-     * <p>
-     * Only gids previously substituted by this instance can be un-substituted.
-     * If you are trying to unsubstitute before you substitute, something is wrong.
+     * Get glyph alternatives to the supplied gid. The applicable alternatives are determined by
+     * the {@code scriptTags} which indicate the language of the gid, and by the list of
+     * {@code enabledFeatures}.
+     *
+     * @param gid GID
+     * @param scriptTags Script tags applicable to the gid (see {@link OpenTypeScript})
+     * @param enabledFeatures list of features to apply
+     */
+    public int[] getAlternatives(int gid, String[] scriptTags, List<String> enabledFeatures)
+    {
+        int[] result = new int[] {};
+        String scriptTag = selectScriptTag(scriptTags);
+        Collection<LangSysTable> langSysTables = getLangSysTables(scriptTag);
+        List<FeatureRecord> featureRecords = getFeatureRecords(langSysTables, enabledFeatures);
+        for (FeatureRecord featureRecord : featureRecords)
+        {
+            result = concat(result, applyAlternativeFeature(featureRecord, gid));
+        }
+        return result;
+    }
+
+    private int[] applyAlternativeFeature(FeatureRecord featureRecord, int gid)
+    {
+        int[] result = new int[] {};
+        for (int lookupListIndex : featureRecord.getFeatureTable().getLookupListIndices())
+        {
+            LookupTable lookupTable = lookupListTable.getLookups()[lookupListIndex];
+            for (LookupSubTable lookupSubtable : lookupTable.getSubTables())
+            {
+                int coverageIndex = lookupSubtable.getCoverageTable().getCoverageIndex(gid);
+                if (coverageIndex >= 0)
+                {
+                    result = concat(result, lookupSubtable.getAlternatives(gid, coverageIndex));
+                }
+            }
+        }
+        return result;
+    }
+
+    private int[] concat(int[] array1, int[] array2)
+    {
+        int[] result = new int[array1.length + array2.length];
+        System.arraycopy(array1, 0, result, 0, array1.length);
+        System.arraycopy(array2, 0, result, array1.length, array2.length);
+        return result;
+    }
+
+    /**
+     * For a substitute-gid (obtained from {@link #getSubstitution(int, String[], List)}), retrieve
+     * the original gid.
+     *
+     * Only gids previously substituted by this instance can be un-substituted. If you are trying to
+     * unsubstitute before you substitute, something is wrong.
      *
      * @param sgid Substitute GID
-     *
-     * @return the original gid of a substitute-gid
      */
     public int getUnsubstitution(int sgid)
     {
@@ -915,7 +965,7 @@ public class GlyphSubstitutionTable extends TTFTable
         return Collections.unmodifiableSet(scriptList.keySet());
     }
 
-    private RangeRecord readRangeRecord(TTFDataStream data) throws IOException
+    RangeRecord readRangeRecord(TTFDataStream data) throws IOException
     {
         int startGlyphID = data.readUnsignedShort();
         int endGlyphID = data.readUnsignedShort();

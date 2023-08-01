@@ -44,4 +44,10 @@ public class LookupTypeMultipleSubstitutionFormat1 extends LookupSubTable
     {
         throw new UnsupportedOperationException("not applicable");
     }
+
+    @Override
+    public int[] getAlternatives(int gid, int coverageIndex)
+    {
+        return this.sequenceTables[coverageIndex].getSubstituteGlyphIDs();
+    }
 }

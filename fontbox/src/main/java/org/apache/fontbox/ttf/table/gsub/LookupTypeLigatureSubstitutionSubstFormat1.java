@@ -48,6 +48,12 @@ public class LookupTypeLigatureSubstitutionSubstFormat1 extends LookupSubTable
         throw new UnsupportedOperationException("not applicable");
     }
 
+    @Override
+    public int[] getAlternatives(int gid, int coverageIndex)
+    {
+        return new int[] { doSubstitution(gid, coverageIndex) };
+    }
+
     public LigatureSetTable[] getLigatureSetTables()
     {
         return ligatureSetTables;

@@ -40,4 +40,10 @@ public class LookupTypeAlternateSubstitutionFormat1 extends LookupSubTable {
     public int doSubstitution(int gid, int coverageIndex) {
         throw new UnsupportedOperationException("not applicable");
     }
+
+    @Override
+    public int[] getAlternatives(int gid, int coverageIndex)
+    {
+        return new int[] { doSubstitution(gid, coverageIndex) };
+    }
 }
