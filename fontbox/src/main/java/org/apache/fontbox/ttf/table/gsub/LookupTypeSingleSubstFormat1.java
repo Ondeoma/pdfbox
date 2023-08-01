@@ -48,6 +48,12 @@ public class LookupTypeSingleSubstFormat1 extends LookupSubTable
         return coverageIndex < 0 ? gid : gid + deltaGlyphID;
     }
 
+    @Override
+    public int[] getAlternatives(int gid, int coverageIndex)
+    {
+        return new int[] { doSubstitution(gid, coverageIndex) };
+    }
+
     public short getDeltaGlyphID()
     {
         return deltaGlyphID;

@@ -50,6 +50,12 @@ public class LookupTypeSingleSubstFormat2 extends LookupSubTable
         return coverageIndex < 0 ? gid : substituteGlyphIDs[coverageIndex];
     }
 
+    @Override
+    public int[] getAlternatives(int gid, int coverageIndex)
+    {
+        return new int[] { doSubstitution(gid, coverageIndex) };
+    }
+
     public int[] getSubstituteGlyphIDs()
     {
         return substituteGlyphIDs;

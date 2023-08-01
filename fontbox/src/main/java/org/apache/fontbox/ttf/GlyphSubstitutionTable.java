@@ -36,6 +36,7 @@ import org.apache.fontbox.ttf.table.common.CoverageTableFormat2;
 import org.apache.fontbox.ttf.table.common.LookupSubTable;
 import org.apache.fontbox.ttf.table.common.RangeRecord;
 import org.apache.fontbox.ttf.table.gsub.LookupTypeMultipleSubstitutionFormat1;
+import org.apache.fontbox.ttf.table.gsub.LookupTypeAlternateSubstitutionFormat1;
 import org.apache.fontbox.ttf.table.gsub.LookupTypeSingleSubstFormat1;
 import org.apache.fontbox.ttf.table.gsub.LookupTypeSingleSubstFormat2;
 import org.apache.fontbox.ttf.table.gsub.SequenceTable;
@@ -242,38 +243,6 @@ public class GlyphSubstitutionTable extends TTFTable
         return lookupTables;
     }
 
-    private LookupSubTable readLookupSubtable(TTFDataStream data, long offset, int lookupType) throws IOException
-    {
-        switch (lookupType)
-        {
-            case 1:
-                // Single Substitution Subtable
-                // https://docs.microsoft.com/en-us/typography/opentype/spec/gsub#SS
-                return readSingleLookupSubTable(data, offset);
-            case 2:
-                // Multiple Substitution Subtable
-                // https://learn.microsoft.com/en-us/typography/opentype/spec/gsub#lookuptype-2-multiple-substitution-subtable
-                return readMultipleSubstitutionSubtable(data, offset);
-            // case 4:
-                // Ligature Substitution Subtable
-                // https://docs.microsoft.com/en-us/typography/opentype/spec/gsub#LS
-                // return readLigatureSubstitutionSubtable(data, offset);
-
-                // when creating a new LookupSubTable derived type, don't forget to add a "switch"
-                // in readLookupTable() and add the type in GlyphSubstitutionDataExtractor.extractData()
-
-            default:
-                // Other lookup types are not supported
-                LOG.debug("Type " + lookupType
-                        + " GSUB lookup table is not supported and will be ignored");
-                return null;
-                //TODO next: implement type 6
-                // https://learn.microsoft.com/en-us/typography/opentype/spec/gsub#lookuptype-6-chained-contexts-substitution-subtable
-                // see e.g. readChainedContextualSubTable in Apache FOP
-                // https://github.com/apache/xmlgraphics-fop/blob/1323c2e3511eb23c7dd9b8fb74463af707fa972d/fop-core/src/main/java/org/apache/fop/complexscripts/fonts/OTFAdvancedTypographicTableReader.java#L898
-        }
-    }
-
     LookupTable readLookupTable(TTFDataStream data, long offset) throws IOException
     {
         data.seek(offset);
@@ -296,7 +265,7 @@ public class GlyphSubstitutionTable extends TTFTable
         {
         case 1:
         case 2:
-        case 4:
+        case 3:
             for (int i = 0; i < subTableCount; i++)
             {
                 subTables[i] = readLookupSubtable(data, offset + subTableOffsets[i], lookupType);
@@ -307,16 +276,17 @@ public class GlyphSubstitutionTable extends TTFTable
             // https://learn.microsoft.com/en-us/typography/opentype/spec/gsub#ES
             for (int i = 0; i < subTableCount; i++)
             {
+                data.seek(offset + subTableOffsets[i]);
                 long baseOffset = data.getCurrentPosition();
                 int substFormat = data.readUnsignedShort(); // always 1
+                int extensionLookupType = data.readUnsignedShort();
+                long extensionOffset = data.readUnsignedInt();
                 if (substFormat != 1)
                 {
                     LOG.error("The expected SubstFormat for ExtensionSubstFormat1 subtable is " +
                             substFormat + " but should be 1");
                     continue;
                 }
-                int extensionLookupType = data.readUnsignedShort();
-                long extensionOffset = data.readUnsignedInt();
                 subTables[i] = readLookupSubtable(data, baseOffset + extensionOffset, extensionLookupType);
             }
             break;
@@ -325,6 +295,38 @@ public class GlyphSubstitutionTable extends TTFTable
             LOG.debug("Type " + lookupType + " GSUB lookup table is not supported and will be ignored");
         }
         return new LookupTable(lookupType, lookupFlag, markFilteringSet, subTables);
+    }
+
+    private LookupSubTable readLookupSubtable(TTFDataStream data, long offset, int lookupType) throws IOException
+    {
+        switch (lookupType)
+        {
+            case 1:
+                // Single Substitution Subtable
+                // https://docs.microsoft.com/en-us/typography/opentype/spec/gsub#SS
+                return readSingleLookupSubTable(data, offset);
+            case 2:
+                // Multiple Substitution Subtable
+                // https://learn.microsoft.com/en-us/typography/opentype/spec/gsub#lookuptype-2-multiple-substitution-subtable
+                return readMultipleSubstitutionSubtable(data, offset, lookupType);
+            case 3:
+                // Alternate Substitution Subtable
+                // https://learn.microsoft.com/en-us/typography/opentype/spec/gsub#lookuptype-3-alternate-substitution-subtable
+                return readMultipleSubstitutionSubtable(data, offset, lookupType);
+
+                // when creating a new LookupSubTable derived type, don't forget to add a "switch"
+                // in readLookupTable() and add the type in GlyphSubstitutionDataExtractor.extractData()
+
+            default:
+                // Other lookup types are not supported
+                LOG.debug("Type " + lookupType
+                        + " GSUB lookup table is not supported and will be ignored");
+                return null;
+                //TODO next: implement type 6
+                // https://learn.microsoft.com/en-us/typography/opentype/spec/gsub#lookuptype-6-chained-contexts-substitution-subtable
+                // see e.g. readChainedContextualSubTable in Apache FOP
+                // https://github.com/apache/xmlgraphics-fop/blob/1323c2e3511eb23c7dd9b8fb74463af707fa972d/fop-core/src/main/java/org/apache/fop/complexscripts/fonts/OTFAdvancedTypographicTableReader.java#L898
+        }
     }
 
     private LookupSubTable readSingleLookupSubTable(TTFDataStream data, long offset) throws IOException
@@ -361,7 +363,7 @@ public class GlyphSubstitutionTable extends TTFTable
         }
     }
 
-    private LookupSubTable readMultipleSubstitutionSubtable(TTFDataStream data, long offset)
+    private LookupSubTable readMultipleSubstitutionSubtable(TTFDataStream data, long offset, int lookupType)
             throws IOException
     {
         data.seek(offset);
@@ -394,14 +396,13 @@ public class GlyphSubstitutionTable extends TTFTable
         {
             data.seek(offset + sequenceOffsets[i]);
             int glyphCount = data.readUnsignedShort();
-            for (int j = 0; j < glyphCount; ++j)
-            {
-                int[] substituteGlyphIDs = data.readUnsignedShortArray(glyphCount);
-                sequenceTables[i] = new SequenceTable(glyphCount, substituteGlyphIDs);
-            }
+            int[] substituteGlyphIDs = data.readUnsignedShortArray(glyphCount);
+            sequenceTables[i] = new SequenceTable(glyphCount, substituteGlyphIDs);
         }
 
-        return new LookupTypeMultipleSubstitutionFormat1(substFormat, coverageTable, sequenceTables);
+        return lookupType == 3
+            ? new LookupTypeMultipleSubstitutionFormat1(substFormat, coverageTable, sequenceTables)
+            : new LookupTypeAlternateSubstitutionFormat1(substFormat, coverageTable, sequenceTables);
     }
 
     CoverageTable readCoverageTable(TTFDataStream data, long offset) throws IOException
@@ -588,7 +589,7 @@ public class GlyphSubstitutionTable extends TTFTable
         for (int lookupListIndex : featureRecord.featureTable.lookupListIndices)
         {
             LookupTable lookupTable = lookupList[lookupListIndex];
-            if (lookupTable.lookupType != 1)
+            if (lookupTable.lookupType != 1 || lookupTable.lookupType != 7)
             {
                 LOG.debug("Skipping GSUB feature '" + featureRecord.featureTag
                         + "' because it requires unsupported lookup table type " + lookupTable.lookupType);
@@ -650,6 +651,54 @@ public class GlyphSubstitutionTable extends TTFTable
         lookupCache.put(gid, sgid);
         reverseLookup.put(sgid, gid);
         return sgid;
+    }
+
+    /**
+     * Get glyph alternatives to the supplied gid. The applicable alternatives are determined by
+     * the {@code scriptTags} which indicate the language of the gid, and by the list of
+     * {@code enabledFeatures}.
+     *
+     * @param gid GID
+     * @param scriptTags Script tags applicable to the gid (see {@link OpenTypeScript})
+     * @param enabledFeatures list of features to apply
+     */
+    public int[] getAlternatives(int gid, String[] scriptTags, List<String> enabledFeatures)
+    {
+        int[] result = new int[] {};
+        String scriptTag = selectScriptTag(scriptTags);
+        Collection<LangSysTable> langSysTables = getLangSysTables(scriptTag);
+        List<FeatureRecord> featureRecords = getFeatureRecords(langSysTables, enabledFeatures);
+        for (FeatureRecord featureRecord : featureRecords)
+        {
+            result = concat(result, applyAlternativeFeature(featureRecord, gid));
+        }
+        return result;
+    }
+
+    private int[] applyAlternativeFeature(FeatureRecord featureRecord, int gid)
+    {
+        int[] result = new int[] {};
+        for (int lookupListIndex : featureRecord.featureTable.lookupListIndices)
+        {
+            LookupTable lookupTable = lookupList[lookupListIndex];
+            for (LookupSubTable lookupSubtable : lookupTable.subTables)
+            {
+                int coverageIndex = lookupSubtable.getCoverageTable().getCoverageIndex(gid);
+                if (coverageIndex >= 0)
+                {
+                    result = concat(result, lookupSubtable.getAlternatives(gid, coverageIndex));
+                }
+            }
+        }
+        return result;
+    }
+
+    private int[] concat(int[] array1, int[] array2)
+    {
+        int[] result = new int[array1.length + array2.length];
+        System.arraycopy(array1, 0, result, 0, array1.length);
+        System.arraycopy(array2, 0, result, array1.length, array2.length);
+        return result;
     }
 
     /**

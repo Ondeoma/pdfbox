@@ -23,11 +23,11 @@ import org.apache.fontbox.ttf.table.common.LookupSubTable;
  *
  * @author Tilman Hausherr
  */
-public class LookupTypeMultipleSubstitutionFormat1 extends LookupSubTable
+public class LookupTypeAlternateSubstitutionFormat1 extends LookupSubTable
 {
     private final SequenceTable[] sequenceTables;
 
-    public LookupTypeMultipleSubstitutionFormat1(
+    public LookupTypeAlternateSubstitutionFormat1(
             int substFormat, CoverageTable coverageTable, SequenceTable[] sequenceTables)
     {
         super(substFormat, coverageTable);
