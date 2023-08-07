@@ -45,6 +45,21 @@ public class SubstitutingCmapLookup implements CmapLookup
         return gsub.getSubstitution(gid, scriptTags, enabledFeatures);
     }
 
+    /**
+     * Returns the GlyphId linked with the given character code and varidation selector.
+     *
+     * @param codePointAt the given character code to be mapped
+     * @param varidationSelector specify a glyph variant for a character code
+     * @return glyphId the corresponding glyph id for the given character code and varidation selector
+     */
+    @Override
+    public int getGlyphId(int characterCode, int varidationSelector)
+    {
+        int gid = cmap.getGlyphId(characterCode, varidationSelector);
+        String[] scriptTags = OpenTypeScript.getScriptTags(characterCode);
+        return gsub.getSubstitution(gid, scriptTags, enabledFeatures);
+    }
+
     @Override
     public List<Integer> getCharCodes(int gid)
     {
