@@ -205,6 +205,24 @@ abstract class TTFDataStream implements Closeable
     }
 
     /**
+     * Read an 24-bit unsigned integer.
+     * 
+     * @return An 24-bit unsigned integer.
+     * @throws IOException If there is an error reading the data.
+     */
+    public long readUnsignedInt24() throws IOException
+    {
+        long byte1 = read();
+        long byte2 = read();
+        long byte3 = read();
+        if (byte3 < 0)
+        {
+            throw new EOFException();
+        }
+        return (byte1 << 16) + (byte2 << 8) + byte3;
+    }
+
+    /**
      * Read an eight byte international date.
      *
      * @return A signed short.

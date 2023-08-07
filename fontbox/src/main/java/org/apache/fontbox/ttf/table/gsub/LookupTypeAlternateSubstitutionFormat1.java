@@ -44,6 +44,6 @@ public class LookupTypeAlternateSubstitutionFormat1 extends LookupSubTable {
     @Override
     public int[] getAlternatives(int gid, int coverageIndex)
     {
-        return new int[] { doSubstitution(gid, coverageIndex) };
+        return this.alternateSetTables[coverageIndex].getAlternateGlyphIDs();
     }
 }

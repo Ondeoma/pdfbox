@@ -45,6 +45,7 @@ public class CmapSubtable implements CmapLookup
     private int[] glyphIdToCharacterCode;
     private final Map<Integer, List<Integer>> glyphIdToCharacterCodeMultiple = new HashMap<>();
     private Map<Integer, Integer> characterCodeToGlyphId = Collections.emptyMap();
+    private Map<Integer, Map<Integer, Integer>> varidationSelectorMap = new HashMap<Integer, Map<Integer, Integer>>();
 
     /**
      * This will read the required data from the stream.
@@ -70,6 +71,7 @@ public class CmapSubtable implements CmapLookup
     void initSubtable(CmapTable cmap, int numGlyphs, TTFDataStream data) throws IOException
     {
         data.seek(cmap.getOffset() + subTableOffset);
+        long startSubtable = data.getCurrentPosition();
         int subtableFormat = data.readUnsignedShort();
         long length;
         long version;
@@ -78,12 +80,14 @@ public class CmapSubtable implements CmapLookup
             length = data.readUnsignedShort();
             version = data.readUnsignedShort();
         }
-        else
+        else if (subtableFormat < 14)
         {
             // read an other UnsignedShort to read a Fixed32
             data.readUnsignedShort();
             length = data.readUnsignedInt();
             version = data.readUnsignedInt();
+        } else {
+            length = data.readUnsignedInt();
         }
 
         switch (subtableFormat)
@@ -113,7 +117,7 @@ public class CmapSubtable implements CmapLookup
             processSubtype13(data, numGlyphs);
             break;
         case 14:
-            processSubtype14(data, numGlyphs);
+            processSubtype14(data, startSubtable);
             break;
         default:
             throw new IOException("Unknown cmap format:" + subtableFormat);
@@ -348,14 +352,44 @@ public class CmapSubtable implements CmapLookup
      * Reads a format 14 subtable.
      * 
      * @param data the data stream of the to be parsed ttf font
-     * @param numGlyphs number of glyphs to be read
+     * @param top start of the format 14 subtable
      * @throws IOException If there is an error parsing the true type font.
      */
-    void processSubtype14(TTFDataStream data, int numGlyphs) throws IOException
+    void processSubtype14(TTFDataStream data, long top) throws IOException
     {
-        // Unicode Variation Sequences (UVS)
-        // see http://blogs.adobe.com/CCJKType/2013/05/opentype-cmap-table-ramblings.html
-        LOG.warn("Format 14 cmap table is not supported and will be ignored");
+        int numVarSelectorRecords = (int)data.readUnsignedInt();
+        int[] varSelectors = new int[numVarSelectorRecords];
+        int[] defaultUVSOffsets = new int[numVarSelectorRecords];
+        int[] nonDefaultUVSOffsets = new int[numVarSelectorRecords];
+        for (int i = 0; i < numVarSelectorRecords; ++i) {
+            varSelectors[i] = (int)data.readUnsignedInt24();
+            defaultUVSOffsets[i] = (int)data.readUnsignedInt();
+            nonDefaultUVSOffsets[i] = (int)data.readUnsignedInt();
+        }
+        for (int i = 0; i < numVarSelectorRecords; ++i) {
+            Map<Integer, Integer> varSelectorRecord = new HashMap<Integer, Integer>();
+            if (defaultUVSOffsets[i] != 0) {
+                data.seek(top + defaultUVSOffsets[i]);
+                int numUnicodeValuRanges = (int)data.readUnsignedInt();
+                for (int j = 0; j < numUnicodeValuRanges; ++j) {
+                    int startUnicodeValue = (int)data.readUnsignedInt24();
+                    int additionalCount = data.readUnsignedByte();
+                    for (int k = 0; k <= additionalCount; ++k) {
+                        varSelectorRecord.put(startUnicodeValue + k, 0);
+                    }
+                }
+            }
+            if (nonDefaultUVSOffsets[i] != 0) {
+                data.seek(top + nonDefaultUVSOffsets[i]);
+                int numUVSMappints = (int)data.readUnsignedInt();
+                for (int j = 0; j < numUVSMappints; ++j) {
+                    int unicodeValue = (int)data.readUnsignedInt24();
+                    int glyphID = data.readUnsignedShort();
+                    varSelectorRecord.put(unicodeValue, glyphID);
+                }
+            }
+            varidationSelectorMap.put(varSelectors[i], varSelectorRecord);
+        }
     }
 
     /**
@@ -631,6 +665,24 @@ public class CmapSubtable implements CmapLookup
     {
         Integer glyphId = characterCodeToGlyphId.get(characterCode);
         return glyphId == null ? 0 : glyphId;
+    }
+
+    /**
+     * Returns the GlyphId linked with the given character code and varidation selector.
+     *
+     * @param codePointAt the given character code to be mapped
+     * @param varidationSelector specify a glyph variant for a character code
+     * @return glyphId the corresponding glyph id for the given character code and varidation selector
+     */
+    @Override
+    public int getGlyphId(int codePointAt, int varidationSelector)
+    {
+        Map<Integer, Integer> varSelectorRecord = varidationSelectorMap.get(varidationSelector);
+        if (varSelectorRecord == null) {
+            return getGlyphId(codePointAt);
+        }
+        Integer glyphId = varSelectorRecord.get(codePointAt);
+        return (glyphId == null || glyphId == 0) ? getGlyphId(codePointAt) : glyphId;
     }
 
     private int getCharCode(int gid)

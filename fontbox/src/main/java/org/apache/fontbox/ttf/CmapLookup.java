@@ -35,6 +35,15 @@ public interface CmapLookup
     int getGlyphId(int codePointAt);
 
     /**
+     * Returns the GlyphId linked with the given character code and varidation selector.
+     *
+     * @param codePointAt the given character code to be mapped
+     * @param varidationSelector specify a glyph variant for a character code
+     * @return glyphId the corresponding glyph id for the given character code and varidation selector
+     */
+    int getGlyphId(int codePointAt, int varidationSelector);
+
+    /**
      * Returns all possible character codes for the given gid, or null if there is none.
      *
      * @param gid glyph id
