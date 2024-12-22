@@ -43,6 +43,7 @@ import org.apache.pdfbox.cos.COSObject;
 import org.apache.pdfbox.cos.COSStream;
 import org.apache.pdfbox.io.IOUtils;
 import org.apache.pdfbox.io.RandomAccessRead;
+import org.apache.pdfbox.io.RandomAccessReadBuffer;
 import org.apache.pdfbox.io.RandomAccessStreamCache.StreamCacheCreateFunction;
 import org.apache.pdfbox.pdfwriter.compress.CompressParameters;
 import org.apache.pdfbox.pdmodel.PDDocument;
@@ -310,7 +311,8 @@ public class PDFMergerUtility
     /**
      * Add a source to the list of documents to merge.
      *
-     * @param source RandomAccessRead representing source document
+     * @param source RandomAccessRead representing source document. To pass an InputStream, wrap it
+     * into a {@link RandomAccessReadBuffer}.
      */
     public void addSource(RandomAccessRead source)
     {
