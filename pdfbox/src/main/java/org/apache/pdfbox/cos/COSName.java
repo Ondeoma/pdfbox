@@ -369,6 +369,7 @@ public final class COSName extends COSBase implements Comparable<COSName>
     public static final COSName LIGHTEN = getPDFName("Lighten");
     public static final COSName LIMITS = getPDFName("Limits");
     public static final COSName LINEARIZED = getPDFName("Linearized");
+    public static final COSName LINK = getPDFName("Link");
     public static final COSName LJ = getPDFName("LJ");
     public static final COSName LL = getPDFName("LL");
     public static final COSName LLE = getPDFName("LLE");
