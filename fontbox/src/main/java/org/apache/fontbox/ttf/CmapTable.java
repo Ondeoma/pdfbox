@@ -53,7 +53,6 @@ public class CmapTable extends TTFTable
     public static final int ENCODING_UNICODE_1_1 = 1;
     public static final int ENCODING_UNICODE_2_0_BMP = 3;
     public static final int ENCODING_UNICODE_2_0_FULL = 4;
-    public static final int ENCODING_UNICODE_VARIDATION_SEQUENCES = 5;
 
     private CmapSubtable[] cmaps;
 

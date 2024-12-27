@@ -290,7 +290,7 @@ public class GlyphSubstitutionTable extends TTFTable
             case 2:
                 // Multiple Substitution Subtable
                 // https://learn.microsoft.com/en-us/typography/opentype/spec/gsub#lookuptype-2-multiple-substitution-subtable
-                return readMultipleSubstitutionSubtable(data, offset, lookupType);
+                return readMultipleSubstitutionSubtable(data, offset);
             case 3:
                 // Alternate Substitution Subtable
                 // https://learn.microsoft.com/en-us/typography/opentype/spec/gsub#lookuptype-3-alternate-substitution-subtable
@@ -429,7 +429,7 @@ public class GlyphSubstitutionTable extends TTFTable
         }
     }
 
-    private LookupSubTable readMultipleSubstitutionSubtable(TTFDataStream data, long offset, int lookupType)
+    private LookupSubTable readMultipleSubstitutionSubtable(TTFDataStream data, long offset)
             throws IOException
     {
         data.seek(offset);
@@ -462,11 +462,8 @@ public class GlyphSubstitutionTable extends TTFTable
         {
             data.seek(offset + sequenceOffsets[i]);
             int glyphCount = data.readUnsignedShort();
-            for (int j = 0; j < glyphCount; ++j)
-            {
-                int[] substituteGlyphIDs = data.readUnsignedShortArray(glyphCount);
-                sequenceTables[i] = new SequenceTable(glyphCount, substituteGlyphIDs);
-            }
+            int[] substituteGlyphIDs = data.readUnsignedShortArray(glyphCount);
+            sequenceTables[i] = new SequenceTable(glyphCount, substituteGlyphIDs);
         }
 
         return new LookupTypeMultipleSubstitutionFormat1(substFormat, coverageTable, sequenceTables);
@@ -965,7 +962,7 @@ public class GlyphSubstitutionTable extends TTFTable
         return Collections.unmodifiableSet(scriptList.keySet());
     }
 
-    RangeRecord readRangeRecord(TTFDataStream data) throws IOException
+    private RangeRecord readRangeRecord(TTFDataStream data) throws IOException
     {
         int startGlyphID = data.readUnsignedShort();
         int endGlyphID = data.readUnsignedShort();
